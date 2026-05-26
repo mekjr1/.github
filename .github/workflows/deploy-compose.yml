@@ -1,0 +1,57 @@
+name: Deploy via SSH (Docker Compose)
+
+on:
+  workflow_call:
+    inputs:
+      compose-dir:
+        description: 'Absolute path on the server where the compose file lives'
+        type: string
+        required: true
+      services:
+        description: 'Space-separated compose service names to redeploy'
+        type: string
+        required: true
+      health-check-url:
+        description: 'URL to poll after deploy (empty = skip health check)'
+        type: string
+        default: ''
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_KEY:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_KEY }}
+          # Never run docker compose down — named volumes must persist.
+          # pull then up re-creates only changed services.
+          script: |
+            set -e
+            cd ${{ inputs.compose-dir }}
+            docker compose pull ${{ inputs.services }}
+            docker compose up -d --remove-orphans ${{ inputs.services }}
+            docker compose ps ${{ inputs.services }}
+
+      - name: Health check
+        if: ${{ inputs.health-check-url != '' }}
+        run: |
+          echo "Waiting for services to start..."
+          sleep 15
+          for i in 1 2 3 4 5; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" "${{ inputs.health-check-url }}" || echo "000")
+            echo "Attempt $i: HTTP $status"
+            if [ "$status" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts" && exit 1
