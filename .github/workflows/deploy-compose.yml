@@ -15,6 +15,10 @@ on:
         description: 'URL to poll after deploy (empty = skip health check)'
         type: string
         default: ''
+      git-pull:
+        description: 'If true, run "git pull --ff-only" in compose-dir before pull/up so compose/yaml file changes sync. Defaults to true.'
+        type: boolean
+        default: true
     secrets:
       SSH_HOST:
         required: true
@@ -36,6 +40,11 @@ jobs:
           script: |
             set -e
             cd ${{ inputs.compose-dir }}
+            if [ "${{ inputs.git-pull }}" = "true" ] && [ -d .git ]; then
+              echo "--- git pull ---"
+              git fetch --quiet
+              git reset --hard "@{upstream}"
+            fi
             docker compose pull ${{ inputs.services }}
             docker compose up -d --remove-orphans ${{ inputs.services }}
             docker compose ps ${{ inputs.services }}
